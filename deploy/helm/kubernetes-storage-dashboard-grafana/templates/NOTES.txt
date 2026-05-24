@@ -5,7 +5,7 @@ on each pod's :{{ .Values.exporter.listenPort }}/metrics with prefix
 `{{ .Values.exporter.metricPrefix }}_`.
 {{- if .Values.serviceMonitor.enabled }}
 
-Prometheus ServiceMonitor created; scrape interval
+Prometheus ServiceMonitor created. Scrape interval
 {{ .Values.serviceMonitor.interval }}, timeout
 {{ .Values.serviceMonitor.scrapeTimeout }}.
 {{- end }}
@@ -32,8 +32,9 @@ following to your kube-prometheus-stack values:
       plugins:
         allow_loading_unsigned_plugins: {{ .Values.dashboard.plugin.id }}
 
-`helm upgrade kube-prometheus-stack` after the change; on the next
-Grafana pod roll the plugin is fetched and the dashboard renders.
+Run `helm upgrade kube-prometheus-stack` after the change. On the
+next Grafana pod roll the plugin is fetched and the dashboard
+renders.
 {{- end }}
 
 Verify:

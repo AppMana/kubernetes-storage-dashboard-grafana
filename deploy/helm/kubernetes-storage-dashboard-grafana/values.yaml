@@ -111,30 +111,20 @@ longhorn:
     scrapeTimeout: 30s
     additionalLabels: {}
 
-# Grafana dashboard ConfigMap. The chart ships the native plugin
-# dashboard (uid: storage-usage) by default. The legacy Text+HTML
-# dashboard (uid: storage-usage-legacy) is kept available behind a
-# toggle for Grafana installs that can't load the plugin.
+# Grafana dashboard ConfigMap. Ships the dashboard that uses the
+# appmana-storage-breakdown-panel plugin. Install snippet for the
+# plugin itself is printed in NOTES.txt.
 dashboard:
   enabled: true
   sidecarLabel:
     name: grafana_dashboard
     value: "1"
   datasourceUid: prometheus
-  # The native dashboard uses the appmana-storage-breakdown-panel
-  # plugin. Install instructions are printed in NOTES.txt.
   plugin:
     id: appmana-storage-breakdown-panel
-    version: 0.1.0
-    # Release asset URL. Helm templates the chart's appVersion in by
-    # default; override only when pinning to a different plugin
-    # release than the chart's appVersion.
+    version: 0.1.1
+    # Release asset URL. Defaults to the matching GitHub release.
     downloadUrl: ""
-  legacy:
-    # Ship the legacy Text+HTML dashboard alongside the native one.
-    # Useful if your Grafana cannot load unsigned plugins; requires
-    # `panels.disable_sanitize_html=true` in grafana.ini.
-    enabled: false
   # Color palette for dashboard bar segments and legend entries.
   # [[id, color, label], ...]. The `id` must match the `category`
   # label your exporter emits. Reorder to control segment stacking

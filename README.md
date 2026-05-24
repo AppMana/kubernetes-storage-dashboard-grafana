@@ -1,32 +1,67 @@
 # kubernetes-storage-dashboard-grafana
 
-A per-node storage breakdown for Kubernetes. Ships a small Prometheus
-exporter and a Grafana dashboard that shows, for every node and every
-real disk, what is using the bytes.
+A per-node storage breakdown for Kubernetes. Shows, for every node
+and every real disk, what is using the bytes.
 
 ![Storage Usage panel](docs/images/dashboard-detail.png)
 
 The dashboard answers a question that kubelet's `nodefs` and
 node_exporter's `filesystem_used_bytes` do not: not how much is used,
 but what is using it. Containerd images. Longhorn replicas. Per-pod
-ephemeral writes. A stale buildkit cache. Bar segments are tooltipped,
-categories are pluggable, and the underlying metrics are plain
-Prometheus.
+ephemeral writes. A stale buildkit cache.
 
-## What it does
+## The three pieces
+
+This repo ships three independent components. Each one is useful on
+its own, and the install path for each is different.
+
+1. A Prometheus exporter (the "storage exporter"), packaged as a
+   container image and shipped as a DaemonSet via the Helm chart.
+   Its only job is to publish detailed per-node, per-category storage
+   metrics on `/metrics`. It does not render anything. You can
+   consume the metrics from any Grafana dashboard, alerting rule, or
+   `promtool query` invocation.
+
+2. A Grafana panel plugin
+   (`appmana-storage-breakdown-panel`), written in TypeScript +
+   React, distributed as a `.zip` release asset. Installed into your
+   Grafana by adding one entry to `grafana.plugins:` in your
+   kube-prometheus-stack values. The plugin is a new panel type that
+   knows how to draw the iPhone-Settings-style stacked storage bars
+   from data with this exporter's schema.
+
+3. A dashboard JSON (`Storage Usage`, uid `storage-usage`) that wires
+   the plugin to the exporter's metrics with four PromQL targets.
+   Shipped by the Helm chart as a `grafana_dashboard` labelled
+   ConfigMap, which kube-prometheus-stack's Grafana sidecar
+   auto-imports.
+
+A typical install brings all three. A user who only wants the
+metrics (to build their own dashboard, or to alert) installs only
+the exporter. A user who has the metrics in some other way (their
+own collector, a different exporter) installs only the plugin.
+
+## What the exporter measures
 
 Standard node-level storage metrics tell you a disk is 78% full. They
-do not tell you whether 60% of that is your container image cache (safe
-to `crictl rmi --prune`), or persistent local-path PVCs from a deleted
-namespace (need manual cleanup), or pod ephemeral writes from a runaway
-log (need an app fix).
+do not tell you whether 60% of that is your container image cache
+(safe to `crictl rmi --prune`), or persistent local-path PVCs from a
+deleted namespace (need manual cleanup), or pod ephemeral writes from
+a runaway log (need an app fix).
 
 This exporter classifies on-disk bytes into categories such as
 `containerd-images`, `local-path-pvc`, `pod-ephemeral`, `longhorn`,
 `journald`, `buildkit`, `home`, and `swap`. It uses the fastest
-authoritative source for each category. The Grafana panel renders the
-result as iPhone-storage-style stacked bars, one per (node,
-mountpoint).
+authoritative source for each category, then publishes three
+gauges:
+
+```
+nsd_node_storage_bytes{node, mountpoint, category} <bytes>
+nsd_node_filesystem_size_bytes{node, mountpoint} <bytes>
+nsd_node_filesystem_used_bytes{node, mountpoint} <bytes>
+```
+
+The prefix `nsd_` is configurable (`exporter.metricPrefix` Helm value).
 
 ## How it measures
 
@@ -47,22 +82,28 @@ fastest authoritative source available.
 
 Three details that are not obvious.
 
-**`du --block-size=1`, not `-b`.** Allocated bytes on disk, not
-apparent size. Apparent size over-reports btrfs+zstd compressed files
-and Longhorn sparse replicas by an order of magnitude.
+### du with --block-size=1, not -b
 
-**Avoid `longhorn_disk_usage_bytes`.** That metric is `df`-based and
-reports the entire underlying filesystem (OS, containerd, journald,
-Longhorn). The dashboard joins Longhorn's per-replica metrics instead,
-which excludes the surrounding filesystem.
+Allocated bytes on disk, not apparent size. Apparent size
+over-reports btrfs+zstd compressed files and Longhorn sparse replicas
+by an order of magnitude.
 
-**Synthetic mountpoint labels.** Kubelet does not say where `imageFs`
-lives on the host, so the metric carries `mountpoint="imageFs"`. The
-same applies to `mountpoint="ephemeral"`. The dashboard JavaScript
-maps both back to `/` (or the first available mountpoint) at render
-time, so each segment lands on the right disk.
+### Avoid longhorn_disk_usage_bytes
 
-## Architecture
+That metric is `df`-based and reports the entire underlying
+filesystem (OS, containerd, journald, Longhorn). The dashboard joins
+Longhorn's per-replica metrics instead, which excludes the
+surrounding filesystem.
+
+### Synthetic mountpoint labels
+
+Kubelet does not say where `imageFs` lives on the host, so the metric
+carries `mountpoint="imageFs"`. The same applies to
+`mountpoint="ephemeral"`. The panel plugin maps both back to `/` (or
+the first available mountpoint) at render time, so each segment lands
+on the right disk.
+
+## Exporter internals
 
 The exporter is built as a pluggable registry of categories. Each
 category is one Python class. Most categories are a one-line subclass
@@ -73,8 +114,8 @@ into a ConfigMap. The exporter image does not need a rebuild.
 ```
 exporter/
   categories/
-    base.py                   ABC + DuPathCategory + EnumDirPathCategory + KubeletStatCategory
-    filesystem.py             statvfs(); emits FilesystemSample (the dashboard's denominator)
+    base.py                   ABC, DuPathCategory, EnumDirPathCategory, KubeletStatCategory
+    filesystem.py             statvfs(), emits FilesystemSample (the dashboard's denominator)
     swap.py                   /proc/swaps
     containerd_images.py      kubelet /stats/summary, imageFs.usedBytes
     pod_ephemeral.py          kubelet /stats/summary, sum(pods.ephemeral-storage)
@@ -84,7 +125,7 @@ exporter/
     local_path_provisioner.py EnumDirPathCategory for per-PVC dirs
   utils.py                    du_bytes, host_mountpoint, statvfs, fetch_kubelet_stats
   plugin_loader.py            Imports user .py files from plugins_dir
-  config.py                   YAML loader + categories[] instantiation
+  config.py                   YAML loader, categories[] instantiation
   server.py                   Threading HTTP /metrics + collection loop
   defaults.yaml               Built-in default config
 ```
@@ -97,19 +138,25 @@ in `config.categories[]`, and starts a collection loop. Every
 `interval_seconds` it calls `cat.collect(ctx)` for each category and
 publishes the result on `/metrics` at port 9101.
 
-The Grafana panel is a native plugin
-(`appmana-storage-breakdown-panel`) written in TypeScript and React,
-shipped from this repo's `panel-plugin/` subdirectory. The dashboard
-ConfigMap declares it as the panel type; Grafana renders the bars
-using the same machinery it uses for Bar Chart or Time Series. The
-panel respects Grafana's time picker, variables, drill-down, share
-links, and snapshots.
+## Panel plugin internals
 
-For Grafana installs that cannot load the plugin, a legacy
-Text+HTML+JavaScript dashboard ships under uid `storage-usage-legacy`
-when `dashboard.legacy.enabled=true` in the chart values. That
-dashboard requires `panels.disable_sanitize_html = true` in
-`grafana.ini`; the native plugin does not.
+The panel plugin lives in `panel-plugin/`. It is a standard
+`@grafana/create-plugin` scaffolded project. The runtime entry is
+`src/module.ts`, which registers `StorageBreakdownPanel` as a
+`PanelPlugin<PanelOptions>`. The component lives in
+`src/components/StorageBreakdownPanel.tsx`, with `DiskRow.tsx` and
+`Legend.tsx` handling the per-row markup.
+
+`src/transform.ts` is the only place that knows about the metric
+schema. It joins the four query results (`size`, `used`, `categories`,
+`longhorn`) by `(node, mountpoint)`, remaps the synthetic
+`imageFs`/`ephemeral` mountpoint labels back to a real mountpoint,
+computes free and "other" residuals, and returns a `RowModel[]` for
+React to render. Unit tests cover all of this.
+
+Grafana renders the panel using the same machinery it uses for Bar
+Chart or Time Series. The panel respects Grafana's time picker,
+variables, drill-down, share links, and snapshots.
 
 ## Install
 
@@ -142,13 +189,8 @@ grafana:
 On the next Grafana pod roll the binary is fetched from the release
 asset, extracted into `/var/lib/grafana/plugins/`, and the panel type
 appears in Grafana's panel-type dropdown. The
-`allow_loading_unsigned_plugins` line is required because v0.1.0
+`allow_loading_unsigned_plugins` line is required because v0.1.x
 ships unsigned.
-
-For air-gapped or hardened clusters that can't enable
-`allow_loading_unsigned_plugins`, set `dashboard.legacy.enabled=true`
-in the chart values to also ship the legacy Text+HTML dashboard
-(needs `panels.disable_sanitize_html=true` instead).
 
 ### Install the chart (exporter + dashboard ConfigMap)
 
@@ -167,8 +209,8 @@ kubectl apply -k https://github.com/appmana/kubernetes-storage-dashboard-grafana
 
 Or download `install.yaml` from the GitHub release page and run
 `kubectl apply -f install.yaml`. The panel plugin is still installed
-via the kube-prometheus-stack snippet above; the chart ships the
-dashboard ConfigMap and the exporter DaemonSet, but cannot install
+via the kube-prometheus-stack snippet above. The chart ships the
+dashboard ConfigMap and the exporter DaemonSet, but does not install
 the plugin into a Grafana it does not own.
 
 ### Verify
@@ -187,13 +229,13 @@ nsd_node_storage_bytes{node="...",mountpoint="imageFs",category="containerd-imag
 nsd_node_filesystem_size_bytes{node="...",mountpoint="/"} 8000000000
 ```
 
-In Grafana, look for the **Storage Usage** dashboard (uid
+In Grafana, look for the "Storage Usage" dashboard (uid
 `storage-usage`).
 
 ## Add a custom category without forking
 
 To track one more thing, write six lines of Helm values. The change
-ships as a Helm release; the exporter image is unchanged.
+ships as a Helm release. The exporter image is unchanged.
 
 A plugin is a single Python file that subclasses one of three base
 classes. Drop the source into `exporter.plugins` in your Helm values
@@ -230,18 +272,18 @@ scrape.
 
 ### Which base class to subclass
 
-- **`DuPathCategory`**: one fixed host path, walked with `du -sx`.
+- `DuPathCategory`: one fixed host path, walked with `du -sx`.
   Required attributes: `name`, `path`.
-- **`EnumDirPathCategory`**: a directory of directories, where each
+- `EnumDirPathCategory`: a directory of directories, where each
   subdirectory is its own time-series (for example local-path PVCs,
   SeaweedFS volumes). Classify by name with a regex and a rule list.
   Required attributes: `root`, `default_category`. Optional:
   `parse_regex`, `rules`.
-- **`KubeletStatCategory`**: one number pulled from kubelet's
+- `KubeletStatCategory`: one number pulled from kubelet's
   `/stats/summary`. Multiple subclasses share one HTTP call per cycle.
   Required attributes: `name`, `mountpoint_label`. Override
   `extract(stats)`.
-- **`BaseCategory`**: anything else. Custom file parsing, multiple
+- `BaseCategory`: anything else. Custom file parsing, multiple
   paths, branching logic. Override `collect(ctx)`. Yield
   `StorageSample(category, mountpoint, bytes)`.
 
@@ -337,15 +379,16 @@ then does the following.
 CI ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)) runs on
 every PR and push.
 
-- **Python**: `ruff check`, `mypy --strict`, `pytest --cov`
-- **YAML**: `yamllint` over all config, values, and kustomize
-- **Dashboard**: render the template against both default and AppMana
+- Python: `ruff check`, `mypy --strict`, `pytest --cov`
+- YAML: `yamllint` over all config, values, and kustomize
+- Dashboard: render the template against both default and AppMana
   category lists, validate as JSON
-- **Helm**: `helm lint`, `helm template`, `kubeconform -strict`
-- **Drift gate**: re-render `install.yaml` and `diff -u` it against
+- Helm: `helm lint`, `helm template`, `kubeconform -strict`
+- Drift gate: re-render `install.yaml` and `diff -u` it against
   the committed copy, so a chart edit that the maintainer forgot to
   re-render fails CI instead of shipping a stale install.yaml
-- **Docker**: full `docker buildx` build and `--help` smoke test
+- Docker: full `docker buildx` build and `--help` smoke test
+- Panel plugin: `yarn typecheck`, `yarn test:ci`, `yarn build`
 
 The committed [`deploy/kustomize/install.yaml`](deploy/kustomize/install.yaml)
 is the source of truth for the Kustomize install path. Regenerate it

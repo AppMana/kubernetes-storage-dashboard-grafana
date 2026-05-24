@@ -1,6 +1,6 @@
 {
   "name": "appmana-storage-breakdown-panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Per-node storage breakdown panel for Grafana. Renders iPhone-Settings-style stacked horizontal bars from the kubernetes-storage-dashboard-grafana exporter's Prometheus metrics.",
   "private": true,
   "scripts": {

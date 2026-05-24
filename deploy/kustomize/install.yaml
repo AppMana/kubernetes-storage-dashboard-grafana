@@ -8,9 +8,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 ---
 # Source: kubernetes-storage-dashboard-grafana/templates/configmap-config.yaml
 apiVersion: v1
@@ -21,9 +21,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 data:
   # Rendered overlay. Deep-merged at startup with the container's
   # /etc/storage-exporter/defaults.yaml; values here win. Omitting
@@ -45,9 +45,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
     grafana_dashboard: "1"
 data:
   storage-usage.json: |
@@ -125,9 +125,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 rules:
   # The exporter hits kubelet /stats/summary on each node via the
   # apiserver proxy to get imageFs + per-pod ephemeral usage from
@@ -144,9 +144,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 subjects:
   - kind: ServiceAccount
     name: kubernetes-storage-dashboard-grafana
@@ -165,9 +165,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 spec:
   # Headless: every DaemonSet pod is its own scrape target via per-pod IP.
   clusterIP: None
@@ -189,9 +189,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 spec:
   selector:
     matchLabels:
@@ -204,7 +204,7 @@ spec:
         app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
       annotations:
         # Roll pods when the config or plugins ConfigMaps change content.
-        ksdg/config-hash: 2949a2101862178a802b64e60224706a06026c00dd1b3e6297b6b844ca935b2c
+        ksdg/config-hash: 8ffe5139de424cfe95813622e0f78c939f1c35d8af9d27009b7bf8b252a13bd2
         ksdg/plugins-hash: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
     spec:
       serviceAccountName: kubernetes-storage-dashboard-grafana
@@ -226,7 +226,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: exporter
-          image: ghcr.io/appmana/kubernetes-storage-dashboard-grafana:0.1.0
+          image: ghcr.io/appmana/kubernetes-storage-dashboard-grafana:0.1.1
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_NAME
@@ -278,9 +278,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
     app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.1"
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.1
 spec:
   jobLabel: app.kubernetes.io/name
   selector:

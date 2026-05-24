@@ -3,10 +3,10 @@
 A native Grafana panel that renders the iPhone-Settings-style stacked
 horizontal storage bar produced by the
 [kubernetes-storage-dashboard-grafana](https://github.com/AppMana/kubernetes-storage-dashboard-grafana)
-exporter. One row per (node, mountpoint); one color-coded segment per
+exporter. One row per (node, mountpoint). One color-coded segment per
 storage category (containerd images, longhorn, buildkit, pod
-ephemeral, journald, etc.); free and "other" residuals computed at
-render time.
+ephemeral, journald, and so on). Free and "other" residuals are
+computed at render time.
 
 The panel takes four query inputs by `refId`:
 
@@ -34,8 +34,8 @@ grafana:
       allow_loading_unsigned_plugins: appmana-storage-breakdown-panel
 ```
 
-On the next Grafana pod roll the plugin is fetched and installed; the
-panel appears as **Storage Breakdown** in the panel-type dropdown.
+On the next Grafana pod roll the plugin is fetched and installed. The
+panel appears as "Storage Breakdown" in the panel-type dropdown.
 
 The `allow_loading_unsigned_plugins` line is required because the
 plugin is shipped unsigned. Signed releases are tracked in the parent

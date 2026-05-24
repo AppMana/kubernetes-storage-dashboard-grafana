@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Render a dashboard template into a concrete dashboard JSON.
+"""Render the dashboard template into a concrete dashboard JSON.
 
-The template has four placeholders, two of which are mutually
-exclusive depending on which template you're rendering:
+The template has three placeholders:
 
     __METRIC_PREFIX__        Prefix used on exporter metric names
                              (e.g. "nsd_node_storage_bytes").
@@ -12,13 +11,10 @@ exclusive depending on which template you're rendering:
                              kube-prometheus installs.
 
     __CATEGORIES_OBJ_JSON__  JSON array of {id, color, label} objects,
-                             substituted verbatim. Used by the native
-                             plugin template (storage-usage.tmpl.json).
-
-    __CATEGORIES_JSON__      JSON array of [id, color, label] tuples,
-                             escaped for embedding inside a JSON
-                             string value. Used by the legacy
-                             Text/HTML template.
+                             substituted verbatim into the panel's
+                             options.categories. Loaded from the
+                             --categories file, which is a JSON array
+                             of [id, color, label] tuples.
 
 Usage:
     python dashboards/render.py \\
@@ -36,19 +32,12 @@ import sys
 from pathlib import Path
 
 
-def render(
-    template: str,
-    prefix: str,
-    datasource_uid: str,
-    categories_tuple_inline: str,
-    categories_obj_inline: str,
-) -> str:
+def render(template: str, prefix: str, datasource_uid: str, categories_obj: str) -> str:
     return (
         template
         .replace("__METRIC_PREFIX__", prefix)
         .replace("__DATASOURCE_UID__", datasource_uid)
-        .replace("__CATEGORIES_OBJ_JSON__", categories_obj_inline)
-        .replace("__CATEGORIES_JSON__", categories_tuple_inline)
+        .replace("__CATEGORIES_OBJ_JSON__", categories_obj)
     )
 
 
@@ -63,26 +52,12 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     template = args.template.read_text()
-    categories = json.loads(args.categories.read_text())
+    tuples = json.loads(args.categories.read_text())
+    cats = [{"id": id_, "color": color, "label": label} for id_, color, label in tuples]
+    cats_inline = json.dumps(cats, separators=(",", ":"))
 
-    # Two forms:
-    # 1. Tuple-form, escaped for embedding inside a JSON string value
-    #    (used by the legacy template's `content` field).
-    cats_tuple_inline = json.dumps(categories, separators=(",", ":")).replace('"', '\\"')
-    # 2. Object-form, substituted verbatim into the panel options
-    #    (used by the native plugin template).
-    cats_obj = [
-        {"id": id_, "color": color, "label": label}
-        for id_, color, label in categories
-    ]
-    cats_obj_inline = json.dumps(cats_obj, separators=(",", ":"))
-
-    rendered = render(
-        template, args.prefix, args.datasource_uid,
-        cats_tuple_inline, cats_obj_inline,
-    )
-    # Validate the result parses as a Grafana dashboard JSON.
-    json.loads(rendered)
+    rendered = render(template, args.prefix, args.datasource_uid, cats_inline)
+    json.loads(rendered)  # validates the result parses as JSON
 
     if args.out:
         args.out.write_text(rendered)
