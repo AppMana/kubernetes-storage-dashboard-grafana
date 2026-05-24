@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  python:
+    name: Python lint + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with: { version: latest }
+      - name: Setup Python venv
+        run: |
+          uv python install 3.13
+          uv venv --python 3.13
+          uv pip install -e ".[dev]"
+      - name: ruff
+        run: uv run --no-project ruff check exporter tests dashboards
+      - name: mypy
+        run: uv run --no-project mypy exporter
+      - name: pytest
+        run: uv run --no-project pytest -v --cov=exporter --cov-report=term-missing
+
+  yaml:
+    name: YAML lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: yamllint
+        run: |
+          pipx install yamllint
+          yamllint -d '{extends: relaxed, rules: {line-length: disable, trailing-spaces: disable, document-start: disable, comments: {min-spaces-from-content: 1}, indentation: {indent-sequences: consistent}}}' \
+            exporter/defaults.yaml examples/ deploy/helm/kubernetes-storage-dashboard-grafana/values.yaml deploy/kustomize/
+
+  dashboard:
+    name: Dashboard render + validate
+    runs-on: ubuntu-latest
+    needs: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Setup Python venv
+        run: |
+          uv python install 3.13
+          uv venv --python 3.13
+          uv pip install pyyaml
+      - name: Render dashboard (default categories)
+        run: |
+          uv run --no-project python dashboards/render.py \
+            --template dashboards/storage-usage.tmpl.json \
+            --categories dashboards/default-categories.json \
+            --prefix nsd \
+            --datasource-uid prometheus \
+            --out /tmp/dashboard-default.json
+          uv run --no-project python -c "import json; json.load(open('/tmp/dashboard-default.json'))"
+      - name: Render dashboard (appmana categories)
+        run: |
+          uv run --no-project python dashboards/render.py \
+            --template dashboards/storage-usage.tmpl.json \
+            --categories dashboards/appmana-categories.json \
+            --prefix appmana \
+            --datasource-uid prometheus \
+            --out /tmp/dashboard-appmana.json
+          uv run --no-project python -c "import json; json.load(open('/tmp/dashboard-appmana.json'))"
+
+  helm:
+    name: Helm lint + template + kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pin helm version so install.yaml output matches what was used
+      # locally to regenerate it. Without a pin, helm's renderer
+      # occasionally changes blank-line / trailing-whitespace handling
+      # between versions and the drift gate trips spuriously.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.4
+      - name: helm lint
+        run: helm lint deploy/helm/kubernetes-storage-dashboard-grafana
+      - name: helm template
+        run: |
+          helm template kubernetes-storage-dashboard-grafana \
+            deploy/helm/kubernetes-storage-dashboard-grafana \
+            --namespace monitoring > /tmp/rendered.yaml
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - name: kubeconform
+        run: |
+          # Skip the ServiceMonitor (CRD) — kubeconform has no schema for
+          # monitoring.coreos.com by default.
+          kubeconform -strict -summary -skip ServiceMonitor /tmp/rendered.yaml
+      - name: kubeconform on committed install.yaml
+        run: |
+          kubeconform -strict -summary -skip ServiceMonitor deploy/kustomize/install.yaml
+      - name: install.yaml is up to date with chart
+        run: |
+          helm template kubernetes-storage-dashboard-grafana \
+            deploy/helm/kubernetes-storage-dashboard-grafana \
+            --namespace monitoring \
+            --set image.tag=$(yq -r '.appVersion' deploy/helm/kubernetes-storage-dashboard-grafana/Chart.yaml) \
+            > /tmp/expected-install.yaml
+          # Normalize trailing whitespace + blank lines before comparing,
+          # in case helm's whitespace handling shifts between minor versions.
+          norm() { sed -E 's/[[:space:]]+$//' "$1" | cat -s; }
+          diff -u <(norm deploy/kustomize/install.yaml) <(norm /tmp/expected-install.yaml)
+
+  docker:
+    name: Docker build smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ksdg:test
+      - name: smoke (entrypoint help)
+        run: docker run --rm ksdg:test --help
+
+  plugin:
+    name: Panel plugin lint + test + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: panel-plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: panel-plugin/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn typecheck
+      - run: yarn test:ci
+      - run: yarn build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panel-plugin-bundle
+          path: panel-plugin/dist
+          retention-days: 7

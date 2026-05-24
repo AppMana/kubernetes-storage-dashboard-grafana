@@ -1,0 +1,43 @@
+{{ include "ksdg.fullname" . }} installed.
+
+Exporter DaemonSet is rolling out on every linux node. Metrics will be
+on each pod's :{{ .Values.exporter.listenPort }}/metrics with prefix
+`{{ .Values.exporter.metricPrefix }}_`.
+{{- if .Values.serviceMonitor.enabled }}
+
+Prometheus ServiceMonitor created; scrape interval
+{{ .Values.serviceMonitor.interval }}, timeout
+{{ .Values.serviceMonitor.scrapeTimeout }}.
+{{- end }}
+{{- if .Values.longhorn.serviceMonitor.enabled }}
+
+Longhorn ServiceMonitor created. The dashboard's `longhorn` segment
+will populate once Prometheus has scraped longhorn-manager.
+{{- end }}
+{{- if .Values.dashboard.enabled }}
+
+Dashboard ConfigMap is labelled
+  {{ .Values.dashboard.sidecarLabel.name }}: {{ .Values.dashboard.sidecarLabel.value | quote }}
+so the grafana-sc-dashboard sidecar auto-imports it. Look for
+"Storage Usage" (uid {{ "storage-usage" | quote }}) in Grafana.
+
+The dashboard uses a native panel plugin
+({{ .Values.dashboard.plugin.id }}). Install it by adding the
+following to your kube-prometheus-stack values:
+
+  grafana:
+    plugins:
+      - "{{ .Values.dashboard.plugin.id }}@{{ .Values.dashboard.plugin.version }}@{{ if .Values.dashboard.plugin.downloadUrl }}{{ .Values.dashboard.plugin.downloadUrl }}{{ else }}https://github.com/AppMana/kubernetes-storage-dashboard-grafana/releases/download/v{{ .Values.dashboard.plugin.version }}/{{ .Values.dashboard.plugin.id }}-{{ .Values.dashboard.plugin.version }}.zip{{ end }}"
+    grafana.ini:
+      plugins:
+        allow_loading_unsigned_plugins: {{ .Values.dashboard.plugin.id }}
+
+`helm upgrade kube-prometheus-stack` after the change; on the next
+Grafana pod roll the plugin is fetched and the dashboard renders.
+{{- end }}
+
+Verify:
+
+  kubectl -n {{ .Release.Namespace }} get ds {{ include "ksdg.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward ds/{{ include "ksdg.fullname" . }} {{ .Values.exporter.listenPort }}
+  curl -s localhost:{{ .Values.exporter.listenPort }}/metrics | head

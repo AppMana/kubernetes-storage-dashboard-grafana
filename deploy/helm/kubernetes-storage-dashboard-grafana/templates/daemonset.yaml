@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ksdg.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ksdg.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ksdg.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll pods when the config or plugins ConfigMaps change content.
+        ksdg/config-hash: {{ include (print $.Template.BasePath "/configmap-config.yaml") . | sha256sum }}
+        ksdg/plugins-hash: {{ include (print $.Template.BasePath "/configmap-plugins.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "ksdg.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      hostPID: true
+      hostNetwork: false
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        # Root is required to read /proc/swaps, /proc/1/mounts, and
+        # most /var/lib/* paths the du collector walks. The pod has no
+        # privileged flag, no extra capabilities, and is read-only on
+        # the host bind-mount.
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: exporter
+          image: {{ include "ksdg.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CONFIG_FILE
+              value: /etc/storage-exporter/config.yaml
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.exporter.listenPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          volumeMounts:
+            - name: config
+              mountPath: /etc/storage-exporter/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.exporter.plugins }}
+            - name: plugins
+              mountPath: /etc/storage-exporter/plugins.d
+              readOnly: true
+            {{- end }}
+            - name: host
+              mountPath: /host
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "ksdg.fullname" . }}-config
+            defaultMode: 0444
+        {{- if .Values.exporter.plugins }}
+        - name: plugins
+          configMap:
+            name: {{ include "ksdg.fullname" . }}-plugins
+            defaultMode: 0444
+        {{- end }}
+        - name: host
+          hostPath:
+            path: /
+            type: Directory

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "Storage Breakdown",
+  "id": "appmana-storage-breakdown-panel",
+  "info": {
+    "description": "Per-node storage breakdown for Kubernetes. Renders iPhone-Settings-style stacked horizontal bars from the kubernetes-storage-dashboard-grafana exporter's Prometheus metrics.",
+    "author": {
+      "name": "AppMana",
+      "url": "https://github.com/AppMana"
+    },
+    "keywords": ["storage", "kubernetes", "node", "longhorn", "iphone"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Source",
+        "url": "https://github.com/AppMana/kubernetes-storage-dashboard-grafana"
+      }
+    ],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=10.4.0",
+    "plugins": []
+  }
+}

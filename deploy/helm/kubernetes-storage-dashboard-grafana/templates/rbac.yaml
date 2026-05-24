@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ksdg.fullname" . }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+rules:
+  # The exporter hits kubelet /stats/summary on each node via the
+  # apiserver proxy to get imageFs + per-pod ephemeral usage from
+  # kubelet's CRI accounting (sub-second, no fs walk).
+  - apiGroups: [""]
+    resources: ["nodes/proxy", "nodes/stats"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ksdg.fullname" . }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ksdg.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "ksdg.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io

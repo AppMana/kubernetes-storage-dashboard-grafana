@@ -1,0 +1,19 @@
+{{- if .Values.exporter.plugins -}}
+# User-supplied plugin .py files. Each key in .Values.exporter.plugins
+# becomes a file under /etc/storage-exporter/plugins.d/ inside the
+# pod. Importing the file at startup auto-registers any BaseCategory
+# subclasses it defines, making them referenceable from `categories:`
+# by class name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ksdg.fullname" . }}-plugins
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+data:
+{{- range $name, $body := .Values.exporter.plugins }}
+  {{ $name }}: |
+{{ $body | indent 4 }}
+{{- end }}
+{{- end }}

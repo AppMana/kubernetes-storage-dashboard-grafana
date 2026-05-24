@@ -1,0 +1,46 @@
+{{- if .Values.dashboard.enabled -}}
+{{- $datasourceUid := .Values.dashboard.datasourceUid -}}
+{{- $prefix := .Values.exporter.metricPrefix -}}
+{{- /*
+  Build category arrays in both forms the templates expect:
+  - tuple form  [[id, color, label], ...] for the legacy Text/HTML
+    panel, escaped for embedding inside a JSON string value.
+  - object form [{id, color, label}, ...] for the native plugin
+    panel, substituted verbatim into panel.options.categories.
+*/ -}}
+{{- $cats := .Values.dashboard.categories -}}
+{{- $catsTuple := $cats | toJson -}}
+{{- $catsTupleEscaped := $catsTuple | replace "\"" "\\\"" -}}
+{{- $catsObjList := list -}}
+{{- range $cats -}}
+{{- $catsObjList = append $catsObjList (dict "id" (index . 0) "color" (index . 1) "label" (index . 2)) -}}
+{{- end -}}
+{{- $catsObj := $catsObjList | toJson -}}
+{{- $tmpl := .Files.Get "files/storage-usage.tmpl.json" -}}
+{{- $native := $tmpl
+    | replace "__METRIC_PREFIX__" $prefix
+    | replace "__DATASOURCE_UID__" $datasourceUid
+    | replace "__CATEGORIES_OBJ_JSON__" $catsObj
+-}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ksdg.fullname" . }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+    {{ .Values.dashboard.sidecarLabel.name }}: {{ .Values.dashboard.sidecarLabel.value | quote }}
+data:
+  storage-usage.json: |
+{{ $native | indent 4 }}
+{{- if .Values.dashboard.legacy.enabled }}
+{{- $legacyTmpl := .Files.Get "files/storage-usage-legacy.tmpl.json" -}}
+{{- $legacy := $legacyTmpl
+    | replace "__METRIC_PREFIX__" $prefix
+    | replace "__DATASOURCE_UID__" $datasourceUid
+    | replace "__CATEGORIES_JSON__" $catsTupleEscaped
+-}}
+  storage-usage-legacy.json: |
+{{ $legacy | indent 4 }}
+{{- end }}
+{{- end }}

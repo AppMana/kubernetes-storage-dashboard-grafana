@@ -1,0 +1,18 @@
+apiVersion: v2
+name: kubernetes-storage-dashboard-grafana
+description: Per-node storage breakdown exporter + Grafana dashboard for Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - prometheus
+  - grafana
+  - storage
+  - longhorn
+  - kubernetes
+home: https://github.com/appmana/kubernetes-storage-dashboard-grafana
+sources:
+  - https://github.com/appmana/kubernetes-storage-dashboard-grafana
+maintainers:
+  - name: AppMana
+    url: https://github.com/appmana

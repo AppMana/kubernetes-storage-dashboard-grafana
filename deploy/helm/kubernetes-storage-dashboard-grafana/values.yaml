@@ -1,0 +1,157 @@
+# Default values for kubernetes-storage-dashboard-grafana.
+
+image:
+  registry: ghcr.io
+  repository: appmana/kubernetes-storage-dashboard-grafana
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+exporter:
+  # Top-level exporter knobs. Values here are written verbatim into
+  # the rendered config.yaml. Any field left at its default still
+  # falls back to the container's exporter/defaults.yaml at runtime
+  # via the deep-merge in config.load().
+  metricPrefix: nsd
+  intervalSeconds: 300
+  duTimeoutSeconds: 30
+  listenPort: 9101
+
+  # Override the built-in category set. Leave empty to use the
+  # container's defaults.yaml. Setting a non-empty list replaces
+  # the defaults wholesale, so include every category you want
+  # active. The available built-ins live under exporter/categories/
+  # in the source tree: AptCache, Buildkit, ContainerdImages,
+  # CrashDumps, Dockerd, Filesystem, Fscache, Home, Journald,
+  # LocalPathProvisioner, PodEphemeral, Snap, Swap, plus the inline
+  # types DuPath and EnumDirPath.
+  #
+  # Each entry is a class name (string) or a {type: ClassName,
+  # ...kwargs} map.
+  #
+  # Example:
+  #   categories:
+  #     - { type: Filesystem }
+  #     - { type: AptCache }
+  #     - { type: DuPath, name: my-app, path: /var/lib/my-app }
+  categories: []
+
+  # User-supplied Python plugin files. Each key becomes a filename
+  # under /etc/storage-exporter/plugins.d/ inside the pod. Importing
+  # the file at startup auto-registers any BaseCategory subclasses
+  # it defines, after which the class becomes referenceable in
+  # `categories:` above by name.
+  #
+  # Example:
+  #   plugins:
+  #     my_app.py: |
+  #       from exporter.categories.base import DuPathCategory
+  #       class MyAppCacheCategory(DuPathCategory):
+  #           name = "my-app-cache"
+  #           path = "/var/lib/my-app/cache"
+  #   categories:
+  #     - { type: Filesystem }   # remember to re-list defaults if you
+  #     - { type: AptCache }     # set categories above
+  #     - { type: MyAppCache }
+  plugins: {}
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    # Cold-cache du bursts need headroom. CPUThrottlingHigh fires on
+    # hitting the limit, not on sustained usage.
+    cpu: "1"
+    memory: 256Mi
+
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+  - operator: Exists
+    effect: NoExecute
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+priorityClassName: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# Prometheus ServiceMonitor.
+serviceMonitor:
+  enabled: true
+  interval: 60s
+  scrapeTimeout: 30s
+  additionalLabels: {}  # e.g. release: kube-prometheus-stack
+  relabelings: []
+  metricRelabelings: []
+
+# Optional ServiceMonitor for longhorn-manager's built-in /metrics.
+# Enable when Longhorn is installed in the cluster; the dashboard's
+# `longhorn` segment depends on these metrics being scraped.
+longhorn:
+  serviceMonitor:
+    enabled: false
+    namespace: longhorn-system
+    labelSelector:
+      app: longhorn-manager
+    portName: manager
+    path: /metrics
+    interval: 60s
+    scrapeTimeout: 30s
+    additionalLabels: {}
+
+# Grafana dashboard ConfigMap. The chart ships the native plugin
+# dashboard (uid: storage-usage) by default. The legacy Text+HTML
+# dashboard (uid: storage-usage-legacy) is kept available behind a
+# toggle for Grafana installs that can't load the plugin.
+dashboard:
+  enabled: true
+  sidecarLabel:
+    name: grafana_dashboard
+    value: "1"
+  datasourceUid: prometheus
+  # The native dashboard uses the appmana-storage-breakdown-panel
+  # plugin. Install instructions are printed in NOTES.txt.
+  plugin:
+    id: appmana-storage-breakdown-panel
+    version: 0.1.0
+    # Release asset URL. Helm templates the chart's appVersion in by
+    # default; override only when pinning to a different plugin
+    # release than the chart's appVersion.
+    downloadUrl: ""
+  legacy:
+    # Ship the legacy Text+HTML dashboard alongside the native one.
+    # Useful if your Grafana cannot load unsigned plugins; requires
+    # `panels.disable_sanitize_html=true` in grafana.ini.
+    enabled: false
+  # Color palette for dashboard bar segments and legend entries.
+  # [[id, color, label], ...]. The `id` must match the `category`
+  # label your exporter emits. Reorder to control segment stacking
+  # left-to-right. Add an entry for every plugin category you want
+  # rendered with its own color.
+  categories:
+    - [containerd-images, "#3B82F6", "Containerd images"]
+    - [longhorn,          "#10B981", "Longhorn data"]
+    - [pod-ephemeral,     "#A855F7", "Pod ephemeral"]
+    - [local-path-pvc,    "#64748B", "Local-path PVCs"]
+    - [local-path-cache,  "#22D3EE", "Local-path caches"]
+    - [buildkit,          "#FBBF24", "BuildKit"]
+    - [dockerd,           "#F97316", "Dockerd"]
+    - [fscache,           "#B877D9", "NFS/SMB cache"]
+    - [apt-cache,         "#73BF69", "APT cache"]
+    - [journald,          "#F59E0B", "Journald logs"]
+    - [snap,              "#FFB357", "Snap"]
+    - [home,              "#EF4444", "Home"]
+    - [crash-dumps,       "#FF7383", "Kernel crash dumps"]
+    - [swap,              "#6B7280", "Swap"]

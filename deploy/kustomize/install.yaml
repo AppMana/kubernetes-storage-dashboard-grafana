@@ -1,0 +1,295 @@
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/configmap-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubernetes-storage-dashboard-grafana-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+data:
+  # Rendered overlay. Deep-merged at startup with the container's
+  # /etc/storage-exporter/defaults.yaml; values here win. Omitting
+  # `categories:` lets the defaults shine through; setting it
+  # replaces the default list wholesale.
+  config.yaml: |
+    metric_prefix: nsd
+    interval_seconds: 300
+    du_timeout_seconds: 30
+    listen_port: 9101
+    plugins_dir: /etc/storage-exporter/plugins.d
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/configmap-dashboard.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubernetes-storage-dashboard-grafana-dashboard
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+    grafana_dashboard: "1"
+data:
+  storage-usage.json: |
+    {
+      "annotations": {"list": []},
+      "editable": false,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "uid": "storage-usage",
+      "title": "Storage Usage",
+      "tags": ["storage", "nodes"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "1m",
+      "time": {"from": "now-5m", "to": "now"},
+      "timepicker": {"refresh_intervals": ["1m", "5m"], "time_options": ["5m"]},
+      "templating": {"list": []},
+      "panels": [
+        {
+          "id": 1,
+          "type": "appmana-storage-breakdown-panel",
+          "pluginVersion": "0.1.0",
+          "title": "",
+          "transparent": true,
+          "gridPos": {"h": 26, "w": 24, "x": 0, "y": 0},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "metricPrefix": "nsd",
+            "categories": [{"color":"#3B82F6","id":"containerd-images","label":"Containerd images"},{"color":"#10B981","id":"longhorn","label":"Longhorn data"},{"color":"#A855F7","id":"pod-ephemeral","label":"Pod ephemeral"},{"color":"#64748B","id":"local-path-pvc","label":"Local-path PVCs"},{"color":"#22D3EE","id":"local-path-cache","label":"Local-path caches"},{"color":"#FBBF24","id":"buildkit","label":"BuildKit"},{"color":"#F97316","id":"dockerd","label":"Dockerd"},{"color":"#B877D9","id":"fscache","label":"NFS/SMB cache"},{"color":"#73BF69","id":"apt-cache","label":"APT cache"},{"color":"#F59E0B","id":"journald","label":"Journald logs"},{"color":"#FFB357","id":"snap","label":"Snap"},{"color":"#EF4444","id":"home","label":"Home"},{"color":"#FF7383","id":"crash-dumps","label":"Kernel crash dumps"},{"color":"#6B7280","id":"swap","label":"Swap"}],
+            "showFree": true,
+            "showOther": true,
+            "rowHeight": 22,
+            "sortMode": "node-asc"
+          },
+          "targets": [
+            {
+              "refId": "size",
+              "expr": "nsd_node_filesystem_size_bytes",
+              "instant": true,
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            },
+            {
+              "refId": "used",
+              "expr": "nsd_node_filesystem_used_bytes",
+              "instant": true,
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            },
+            {
+              "refId": "categories",
+              "expr": "nsd_node_storage_bytes",
+              "instant": true,
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            },
+            {
+              "refId": "longhorn",
+              "expr": "sum by (node, disk_path) (longhorn_replica_info * on(volume) group_left() longhorn_volume_actual_size_bytes)",
+              "instant": true,
+              "datasource": {"type": "prometheus", "uid": "prometheus"}
+            }
+          ]
+        }
+      ]
+    }
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+rules:
+  # The exporter hits kubelet /stats/summary on each node via the
+  # apiserver proxy to get imageFs + per-pod ephemeral usage from
+  # kubelet's CRI accounting (sub-second, no fs walk).
+  - apiGroups: [""]
+    resources: ["nodes/proxy", "nodes/stats"]
+    verbs: ["get"]
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-storage-dashboard-grafana
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: kubernetes-storage-dashboard-grafana
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+spec:
+  # Headless: every DaemonSet pod is its own scrape target via per-pod IP.
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: metrics
+      protocol: TCP
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+      app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+        app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+      annotations:
+        # Roll pods when the config or plugins ConfigMaps change content.
+        ksdg/config-hash: 2949a2101862178a802b64e60224706a06026c00dd1b3e6297b6b844ca935b2c
+        ksdg/plugins-hash: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+    spec:
+      serviceAccountName: kubernetes-storage-dashboard-grafana
+      hostPID: true
+      hostNetwork: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      securityContext:
+        # Root is required to read /proc/swaps, /proc/1/mounts, and
+        # most /var/lib/* paths the du collector walks. The pod has no
+        # privileged flag, no extra capabilities, and is read-only on
+        # the host bind-mount.
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: exporter
+          image: ghcr.io/appmana/kubernetes-storage-dashboard-grafana:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CONFIG_FILE
+              value: /etc/storage-exporter/config.yaml
+          ports:
+            - name: metrics
+              containerPort: 9101
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "1"
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          readinessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          volumeMounts:
+            - name: config
+              mountPath: /etc/storage-exporter/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: host
+              mountPath: /host
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: kubernetes-storage-dashboard-grafana-config
+            defaultMode: 0444
+        - name: host
+          hostPath:
+            path: /
+            type: Directory
+---
+# Source: kubernetes-storage-dashboard-grafana/templates/servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubernetes-storage-dashboard-grafana-0.1.0
+spec:
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-storage-dashboard-grafana
+      app.kubernetes.io/instance: kubernetes-storage-dashboard-grafana
+  namespaceSelector:
+    matchNames: [monitoring]
+  endpoints:
+    - port: metrics
+      interval: 60s
+      scrapeTimeout: 30s

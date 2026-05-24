@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ksdg.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+spec:
+  # Headless: every DaemonSet pod is its own scrape target via per-pod IP.
+  clusterIP: None
+  selector:
+    {{- include "ksdg.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.exporter.listenPort }}
+      targetPort: metrics
+      protocol: TCP

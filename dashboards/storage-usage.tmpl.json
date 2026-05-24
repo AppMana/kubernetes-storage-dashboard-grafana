@@ -1,0 +1,65 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "uid": "storage-usage",
+  "title": "Storage Usage",
+  "tags": ["storage", "nodes"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-5m", "to": "now"},
+  "timepicker": {"refresh_intervals": ["1m", "5m"], "time_options": ["5m"]},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "type": "appmana-storage-breakdown-panel",
+      "pluginVersion": "0.1.0",
+      "title": "",
+      "transparent": true,
+      "gridPos": {"h": 26, "w": 24, "x": 0, "y": 0},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__DATASOURCE_UID__"
+      },
+      "options": {
+        "metricPrefix": "__METRIC_PREFIX__",
+        "categories": __CATEGORIES_OBJ_JSON__,
+        "showFree": true,
+        "showOther": true,
+        "rowHeight": 22,
+        "sortMode": "node-asc"
+      },
+      "targets": [
+        {
+          "refId": "size",
+          "expr": "__METRIC_PREFIX___node_filesystem_size_bytes",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "__DATASOURCE_UID__"}
+        },
+        {
+          "refId": "used",
+          "expr": "__METRIC_PREFIX___node_filesystem_used_bytes",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "__DATASOURCE_UID__"}
+        },
+        {
+          "refId": "categories",
+          "expr": "__METRIC_PREFIX___node_storage_bytes",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "__DATASOURCE_UID__"}
+        },
+        {
+          "refId": "longhorn",
+          "expr": "sum by (node, disk_path) (longhorn_replica_info * on(volume) group_left() longhorn_volume_actual_size_bytes)",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "__DATASOURCE_UID__"}
+        }
+      ]
+    }
+  ]
+}

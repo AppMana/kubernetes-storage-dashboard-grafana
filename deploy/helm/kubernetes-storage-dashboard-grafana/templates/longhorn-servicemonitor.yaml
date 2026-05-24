@@ -1,0 +1,30 @@
+{{- if .Values.longhorn.serviceMonitor.enabled -}}
+# Scrapes longhorn-manager's built-in /metrics endpoint so the
+# dashboard's `longhorn` segment has data. The dashboard joins
+# `longhorn_replica_info` with `longhorn_volume_actual_size_bytes` to
+# count only replica bytes; the df-based `longhorn_disk_usage_bytes`
+# reports the entire underlying filesystem (OS, image cache, journald,
+# Longhorn) and is unsuitable for the per-category breakdown.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "ksdg.fullname" . }}-longhorn
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksdg.labels" . | nindent 4 }}
+    {{- with .Values.longhorn.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames: [{{ .Values.longhorn.serviceMonitor.namespace }}]
+  selector:
+    matchLabels:
+      {{- toYaml .Values.longhorn.serviceMonitor.labelSelector | nindent 6 }}
+  endpoints:
+    - port: {{ .Values.longhorn.serviceMonitor.portName }}
+      path: {{ .Values.longhorn.serviceMonitor.path }}
+      interval: {{ .Values.longhorn.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.longhorn.serviceMonitor.scrapeTimeout }}
+{{- end }}

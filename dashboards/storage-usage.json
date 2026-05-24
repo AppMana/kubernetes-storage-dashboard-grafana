@@ -1,0 +1,65 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "uid": "storage-usage",
+  "title": "Storage Usage",
+  "tags": ["storage", "nodes"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-5m", "to": "now"},
+  "timepicker": {"refresh_intervals": ["1m", "5m"], "time_options": ["5m"]},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "type": "appmana-storage-breakdown-panel",
+      "pluginVersion": "0.1.0",
+      "title": "",
+      "transparent": true,
+      "gridPos": {"h": 26, "w": 24, "x": 0, "y": 0},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "metricPrefix": "nsd",
+        "categories": [{"id":"containerd-images","color":"#3B82F6","label":"Containerd images"},{"id":"longhorn","color":"#10B981","label":"Longhorn data"},{"id":"pod-ephemeral","color":"#A855F7","label":"Pod ephemeral"},{"id":"local-path-pvc","color":"#64748B","label":"Local-path PVCs"},{"id":"local-path-cache","color":"#22D3EE","label":"Local-path caches"},{"id":"buildkit","color":"#FBBF24","label":"BuildKit"},{"id":"dockerd","color":"#F97316","label":"Dockerd"},{"id":"fscache","color":"#B877D9","label":"NFS/SMB cache"},{"id":"apt-cache","color":"#73BF69","label":"APT cache"},{"id":"journald","color":"#F59E0B","label":"Journald logs"},{"id":"snap","color":"#FFB357","label":"Snap"},{"id":"home","color":"#EF4444","label":"Home"},{"id":"crash-dumps","color":"#FF7383","label":"Kernel crash dumps"},{"id":"swap","color":"#6B7280","label":"Swap"}],
+        "showFree": true,
+        "showOther": true,
+        "rowHeight": 22,
+        "sortMode": "node-asc"
+      },
+      "targets": [
+        {
+          "refId": "size",
+          "expr": "nsd_node_filesystem_size_bytes",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "refId": "used",
+          "expr": "nsd_node_filesystem_used_bytes",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "refId": "categories",
+          "expr": "nsd_node_storage_bytes",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        },
+        {
+          "refId": "longhorn",
+          "expr": "sum by (node, disk_path) (longhorn_replica_info * on(volume) group_left() longhorn_volume_actual_size_bytes)",
+          "instant": true,
+          "datasource": {"type": "prometheus", "uid": "prometheus"}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+# Example config: AppMana production cluster.
+#
+# This is what the exporter looks like in the cluster it was extracted
+# from. Notable differences from the defaults:
+#
+#   - metric_prefix renamed to "appmana" so existing dashboards and
+#     alerts keep working during the rename window.
+#   - local-path-provisioner store relocated to /mnt/kubernetes.
+#   - SeaweedFS volume data under /mnt/seaweed enumerated per-volume.
+#   - hf-cache, seaweedfs-csi-cache du paths added.
+#   - Several PVCs pinned to specific categories so vLLM/ComfyUI/
+#     buildkit caches don't collapse into the generic local-path bucket.
+#   - Skip k0s kubelet/containerd mountpoint prefixes (k0s-specific path).
+
+metric_prefix: appmana
+
+categories:
+  - type: Filesystem
+    skip_mountpoint_prefixes:
+      - /boot
+      - /run/
+      - /var/lib/k0s/kubelet/
+      - /var/lib/k0s/containerd/
+      - /var/lib/longhorn-iscsi/
+      - /var/lib/longhorn-engine/
+
+  - { type: ContainerdImages }
+  - { type: PodEphemeral }
+  - { type: Swap }
+
+  - { type: AptCache }
+  - { type: Fscache }
+  - { type: Journald }
+  - { type: CrashDumps }
+  - { type: Snap }
+  - { type: Buildkit }
+  - { type: Dockerd }
+  - { type: Home }
+
+  # SeaweedFS CSI cache lives alongside the apt/journald caches.
+  # No built-in covers it; declare as an inline DuPath.
+  - { type: DuPath, name: seaweedfs-csi-cache, path: /var/cache/seaweedfs }
+
+  # Legacy HuggingFace download cache (pre-SeaweedFS-CSI era).
+  - { type: DuPath, name: hf-cache, path: /var/lib/inference/hf-cache }
+
+  # Local-path provisioner relocated under /mnt/kubernetes.
+  # Several PVCs are pinned to their own categories instead of
+  # collapsing into local-path-pvc / local-path-cache.
+  - type: LocalPathProvisioner
+    root: /mnt/kubernetes
+    rules:
+      - if: { namespace: buildkit, claim_prefix: cache-buildkitd- }
+        category: buildkit
+      - if: { namespace: inference, claim_prefix: jit-cache-local-vllm-deepseek-v4 }
+        category: vllm-jit-local
+      - if: { namespace: comfyui-custom-nodes, claim: comfyui-custom-nodes-cache }
+        category: comfyui-custom-nodes-cache
+      - if: { namespace: comfyui-custom-nodes, claim: comfyui-custom-nodes-snapshot }
+        category: comfyui-custom-nodes-snapshot
+      - if: { claim_contains: cache }
+        category: local-path-cache
+
+  # SeaweedFS volume data: one du per volume directory.
+  - type: EnumDirPath
+    root: /mnt/seaweed
+    parse_regex: '^(?P<volume>.+)$'
+    default_category: seaweedfs-volume-data

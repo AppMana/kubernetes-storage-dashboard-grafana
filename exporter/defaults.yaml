@@ -1,0 +1,52 @@
+# Default config for kubernetes-storage-dashboard-grafana.
+#
+# Shipped inside the container at /etc/storage-exporter/defaults.yaml
+# and merged under a user file mounted at /etc/storage-exporter/config.yaml
+# (override path via $CONFIG_FILE or --config).
+#
+# When both files exist they deep-merge: user values override defaults
+# scalar-by-scalar; list-valued keys (`categories`) are replaced
+# wholesale. To add a category to the default set, include every
+# default entry you still want.
+
+metric_prefix: nsd
+interval_seconds: 300
+du_timeout_seconds: 30
+listen_port: 9101
+
+# Where the exporter looks for user-supplied plugin .py files at
+# startup. Any *.py file under this directory that defines a
+# BaseCategory subclass becomes referenceable in `categories:` below
+# by class name.
+plugins_dir: /etc/storage-exporter/plugins.d
+
+# Each entry is a class name (string) or a {type: ClassName, ...kwargs}
+# map. Class names are matched short ("AptCache") or full
+# ("AptCacheCategory"). Drop an entry from this list to disable that
+# category.
+categories:
+  # Filesystem totals (size + used) for the dashboard's denominator.
+  - { type: Filesystem }
+
+  # kubelet /stats/summary. The two KubeletStat subclasses share one
+  # HTTP call per collection cycle.
+  - { type: ContainerdImages }
+  - { type: PodEphemeral }
+
+  # Authoritative swap from /proc/swaps.
+  - { type: Swap }
+
+  # Bounded `du` paths. A category whose path does not exist on a
+  # given node yields no samples for that cycle, so the same list
+  # ships cluster-wide.
+  - { type: AptCache }
+  - { type: Fscache }
+  - { type: Journald }
+  - { type: CrashDumps }
+  - { type: Snap }
+  - { type: Buildkit }
+  - { type: Dockerd }
+  - { type: Home }
+
+  # Per-PVC directories under the upstream local-path-provisioner root.
+  - { type: LocalPathProvisioner }

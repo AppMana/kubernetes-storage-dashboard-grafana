@@ -1,0 +1,18 @@
+# Kustomize entry point. Applies the same manifests as a default Helm
+# install (release name "kubernetes-storage-dashboard-grafana",
+# namespace "monitoring"). Edit install.yaml directly, or regenerate
+# it:
+#
+#   helm template kubernetes-storage-dashboard-grafana \
+#       deploy/helm/kubernetes-storage-dashboard-grafana \
+#       --namespace monitoring > deploy/kustomize/install.yaml
+#
+# This file is trivial because the manifests already carry namespace
+# fields; kustomize bundles them and applies the Namespace object.
+# Overlay with your own kustomization.yaml that references this one
+# as a base if you want to patch values or change the namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - install.yaml

@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write   # create GH releases + upload assets
+  packages: write   # push to ghcr.io
+
+jobs:
+  image:
+    name: Build & push container image
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # `latest` only on highest semver; numeric tag always.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+
+  plugin:
+    name: Build & package panel plugin
+    runs-on: ubuntu-latest
+    needs: image
+    defaults:
+      run:
+        working-directory: panel-plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: panel-plugin/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn typecheck
+      - run: yarn test:ci
+      - run: yarn build
+      - name: Zip plugin into appmana-storage-breakdown-panel-VERSION.zip
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p /tmp/plugin-stage/appmana-storage-breakdown-panel
+          cp -r dist/. /tmp/plugin-stage/appmana-storage-breakdown-panel/
+          (cd /tmp/plugin-stage && zip -r /tmp/appmana-storage-breakdown-panel-${VERSION}.zip appmana-storage-breakdown-panel)
+          ls -l /tmp/appmana-storage-breakdown-panel-${VERSION}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panel-plugin-zip
+          path: /tmp/appmana-storage-breakdown-panel-*.zip
+
+  chart:
+    name: Package & push Helm chart
+    runs-on: ubuntu-latest
+    needs: image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.4
+      - name: helm login
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+      - name: Set chart + appVersion to the tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          yq -i ".version = \"${VERSION}\" | .appVersion = \"${VERSION}\"" \
+            deploy/helm/kubernetes-storage-dashboard-grafana/Chart.yaml
+      - name: helm package
+        run: |
+          helm package deploy/helm/kubernetes-storage-dashboard-grafana --destination /tmp/charts
+      - name: helm push
+        # OCI references must be all-lowercase; the org slug is mixed-case (AppMana).
+        run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm push /tmp/charts/kubernetes-storage-dashboard-grafana-*.tgz \
+            oci://ghcr.io/${OWNER_LC}/charts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: /tmp/charts/*.tgz
+
+  release:
+    name: GitHub Release with install.yaml + plugin.zip
+    runs-on: ubuntu-latest
+    needs: [image, chart, plugin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.4
+      - name: Render install.yaml at the tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          helm template kubernetes-storage-dashboard-grafana \
+            deploy/helm/kubernetes-storage-dashboard-grafana \
+            --namespace monitoring \
+            --set image.tag="${VERSION}" \
+            > /tmp/install.yaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: helm-chart
+          path: /tmp/charts
+      - uses: actions/download-artifact@v4
+        with:
+          name: panel-plugin-zip
+          path: /tmp/plugin
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            /tmp/install.yaml
+            /tmp/charts/*.tgz
+            /tmp/plugin/*.zip

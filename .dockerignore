@@ -1,0 +1,20 @@
+.git
+.github
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+deploy
+docs
+dashboards
+tests
+examples
+.github
+.gitignore
+.dockerignore
+.editorconfig
+# README.md and LICENSE are intentionally NOT ignored — the Dockerfile
+# COPYs README.md (referenced by pyproject.toml metadata) into the
+# builder stage.
