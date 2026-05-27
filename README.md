@@ -165,63 +165,149 @@ variables, drill-down, share links, and snapshots.
 - Kubernetes 1.27 or later
 - Prometheus and the ServiceMonitor CRD, for example via
   kube-prometheus-stack
-- Grafana 10.4 or later, with the `grafana_dashboard` ConfigMap
-  sidecar enabled (the default in kube-prometheus-stack)
+- Grafana 10.4 or later (12.3+ tested in production), with the
+  `grafana_dashboard` ConfigMap sidecar enabled (the default in
+  kube-prometheus-stack)
+- Network egress from the Grafana pod to `github.com` so the panel
+  binary can be fetched on startup
 - (Optional) [Longhorn](https://longhorn.io), which enables the
   `longhorn` segment
 
-### Install the Grafana panel plugin
+### Step 1: install the panel plugin in your Grafana
 
-The dashboard uses a custom Grafana panel
-(`appmana-storage-breakdown-panel`) that needs to be installed in your
-Grafana instance. With kube-prometheus-stack, add the following to
-your values and `helm upgrade`:
+Add the following to your kube-prometheus-stack values and
+`helm upgrade kube-prometheus-stack`:
 
 ```yaml
 grafana:
-  plugins:
-    - "appmana-storage-breakdown-panel@0.1.0@https://github.com/AppMana/kubernetes-storage-dashboard-grafana/releases/download/v0.1.0/appmana-storage-breakdown-panel-0.1.0.zip"
+  plugins: []
+  env:
+    GF_PLUGINS_PREINSTALL: "appmana-storage-breakdown-panel@0.1.1@https://github.com/AppMana/kubernetes-storage-dashboard-grafana/releases/download/v0.1.1/appmana-storage-breakdown-panel-0.1.1.zip"
   grafana.ini:
     plugins:
       allow_loading_unsigned_plugins: appmana-storage-breakdown-panel
 ```
 
-On the next Grafana pod roll the binary is fetched from the release
-asset, extracted into `/var/lib/grafana/plugins/`, and the panel type
-appears in Grafana's panel-type dropdown. The
-`allow_loading_unsigned_plugins` line is required because v0.1.x
-ships unsigned.
+All three fields are required. They do three separate things:
 
-### Install the chart (exporter + dashboard ConfigMap)
+- `env.GF_PLUGINS_PREINSTALL` tells Grafana's background installer to
+  fetch the .zip and unpack it into `/var/lib/grafana/plugins/` on
+  startup. This is the install-from-URL path Grafana 12.3+ supports.
+- `plugins: []` clears the chart's `GF_INSTALL_PLUGINS` configmap key.
+  Without this, an earlier install that set
+  `plugins: ["...zip"]` leaves a configmap entry that Grafana 12.3+
+  refuses to parse, and the pod fails with
+  `404: /plugins/<id>/versions does not exist`.
+- `grafana.ini.plugins.allow_loading_unsigned_plugins` opts the
+  plugin into Grafana's unsigned-plugin allowlist. v0.1.x releases
+  ship unsigned.
+
+On the next Grafana pod roll the binary is fetched and the panel
+type appears in the panel-type dropdown.
+
+### Step 2: install the chart (exporter + dashboard ConfigMap)
+
+The chart ships the DaemonSet exporter and the dashboard ConfigMap.
+It does not touch your Grafana install, which is why Step 1 is
+separate.
 
 ```bash
 helm install kubernetes-storage-dashboard-grafana \
   oci://ghcr.io/appmana/charts/kubernetes-storage-dashboard-grafana \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace monitoring --create-namespace
 ```
 
-### Kustomize or raw manifests
+If you are migrating from an exporter that already emits a different
+metric prefix (for example `appmana_node_storage_bytes` from an
+in-tree DaemonSet), pin the chart to the same prefix to keep
+downstream consumers working:
 
 ```bash
-kubectl apply -k https://github.com/appmana/kubernetes-storage-dashboard-grafana//deploy/kustomize?ref=v0.1.0
+helm install kubernetes-storage-dashboard-grafana \
+  oci://ghcr.io/appmana/charts/kubernetes-storage-dashboard-grafana \
+  --version 0.1.1 \
+  --namespace monitoring \
+  --set exporter.metricPrefix=appmana
+```
+
+### Step 2 (alternative): Kustomize or raw manifests
+
+```bash
+kubectl apply -k https://github.com/appmana/kubernetes-storage-dashboard-grafana//deploy/kustomize?ref=v0.1.1
 ```
 
 Or download `install.yaml` from the GitHub release page and run
 `kubectl apply -f install.yaml`. The panel plugin is still installed
-via the kube-prometheus-stack snippet above. The chart ships the
-dashboard ConfigMap and the exporter DaemonSet, but does not install
-the plugin into a Grafana it does not own.
+via Step 1. The chart ships the dashboard ConfigMap and the exporter
+DaemonSet, but does not install the plugin into a Grafana it does
+not own.
+
+### Step 3: Flux GitOps install (if you use Flux)
+
+For Flux-managed clusters, drop in a HelmRepository + HelmRelease.
+Mirror the kube-prometheus-stack values patch in your existing
+Grafana HelmRelease.
+
+```yaml
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  namespace: monitoring
+spec:
+  type: oci
+  interval: 1h
+  url: oci://ghcr.io/appmana/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: kubernetes-storage-dashboard-grafana
+  namespace: monitoring
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: kubernetes-storage-dashboard-grafana
+      version: "0.1.1"
+      sourceRef:
+        kind: HelmRepository
+        name: kubernetes-storage-dashboard-grafana
+        namespace: monitoring
+      interval: 1h
+  values:
+    exporter:
+      metricPrefix: appmana    # or your prefix of choice
+    longhorn:
+      serviceMonitor:
+        enabled: true          # if Longhorn is installed
+```
 
 ### Verify
 
 ```bash
+# DaemonSet rolled out on every Linux node
 kubectl -n monitoring rollout status ds/kubernetes-storage-dashboard-grafana
-kubectl -n monitoring port-forward ds/kubernetes-storage-dashboard-grafana 9101
+
+# Sample metrics on the wire
+kubectl -n monitoring port-forward ds/kubernetes-storage-dashboard-grafana 9101 &
 curl -s localhost:9101/metrics | head -20
+
+# Plugin file present in each Grafana pod
+for p in $(kubectl -n monitoring get pods -l app.kubernetes.io/name=grafana -o name); do
+  echo "$p"
+  kubectl -n monitoring exec $p -c grafana -- ls /var/lib/grafana/plugins/appmana-storage-breakdown-panel/
+done
+
+# Metrics flowing through Prometheus, broken down by category
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090 &
+curl -s 'http://localhost:9090/api/v1/query?query=count+by+(category)(nsd_node_storage_bytes)' \
+  | jq -r '.data.result[] | "  \(.metric.category): \(.value[1]) series"'
 ```
 
-You should see lines like the following.
+Expected output shape:
 
 ```
 nsd_node_storage_bytes{node="...",mountpoint="/",category="home"} 1234567
@@ -229,8 +315,32 @@ nsd_node_storage_bytes{node="...",mountpoint="imageFs",category="containerd-imag
 nsd_node_filesystem_size_bytes{node="...",mountpoint="/"} 8000000000
 ```
 
-In Grafana, look for the "Storage Usage" dashboard (uid
-`storage-usage`).
+In Grafana, open `/d/storage-usage`. The Storage Breakdown panel
+renders the iPhone-style stacked bars.
+
+### Recovering from a failed install
+
+If the Grafana pod is in CrashLoopBackOff with this error in the log:
+
+```
+plugin.backgroundinstaller "Failed to install plugins"
+error="...: 404: /plugins/<long-string>/versions does not exist (Grafana v12.3.0)"
+```
+
+you have leftover state from an older install that used the chart's
+`grafana.plugins: ["...zip"]` value. Grafana 12.3+ rejects the
+`name@version@url` syntax in `GF_INSTALL_PLUGINS`. Fix:
+
+1. Patch the configmap key to empty so the next pod boots:
+   ```bash
+   kubectl -n monitoring patch cm kube-prometheus-stack-grafana \
+     --type=json -p='[{"op":"replace","path":"/data/plugins","value":""}]'
+   ```
+2. Set `grafana.plugins: []` in your kube-prometheus-stack values
+   and put the URL in `env.GF_PLUGINS_PREINSTALL` as shown in
+   Step 1, then apply the chart update.
+3. Delete the crashlooping pod. The deployment recreates it with
+   the new env.
 
 ## Add a custom category without forking
 
