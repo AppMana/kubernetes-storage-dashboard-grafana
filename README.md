@@ -352,6 +352,134 @@ seaweedfs-volume-data, vllm-jit-local, comfyui-custom-nodes-cache,
 comfyui-custom-nodes-snapshot, hf-cache, seaweedfs-csi-cache, and a
 relocated local-path provisioner root.
 
+## Using the panel for non-storage metrics
+
+The panel reads four labels from query results: node, mountpoint,
+category, and disk_path. Any Prometheus metric set you can reshape
+with PromQL to those labels renders fine. Pass byte values (the
+panel assumes bytes when it formats numbers).
+
+The panel expects three required refIds and one optional one:
+
+| refId | shape | role |
+|---|---|---|
+| size | one series per (node, mountpoint), bytes | row total |
+| used | one series per (node, mountpoint), bytes | bar fill total |
+| categories | one series per (node, mountpoint, category), bytes | colored segments |
+| longhorn (optional) | series with (node, disk_path), bytes | a synthetic longhorn segment joined by longest-prefix match |
+
+### Example: per-GPU VRAM layout from DCGM
+
+The vllm-deepseek-chain dashboard in the AppMana cluster uses this
+exact pattern to draw VRAM-by-GPU instead of bytes-on-disk. Each
+chain GPU is a row, segments are vllm-resident (non-KV resident
+estimate), vllm-kv-active (cap times active fraction), vllm-kv-idle
+(cap times idle fraction), plus free.
+
+DCGM emits Hostname and gpu labels. label_replace rewrites them
+into node and mountpoint. DCGM_FI_DEV_FB_USED is in MiB, so each
+query multiplies by 1048576 for bytes.
+
+```yaml
+type: appmana-storage-breakdown-panel
+pluginVersion: 0.1.1
+options:
+  categories:
+    - { id: vllm-resident,  color: "#F59E0B", label: "Non-KV resident est." }
+    - { id: vllm-kv-active, color: "#10B981", label: "Active KV est." }
+    - { id: vllm-kv-idle,   color: "#64748B", label: "Idle KV cap" }
+  showFree: true
+  showOther: false        # the three categories above sum to "used"
+  rowHeight: 22
+  sortMode: node-asc
+targets:
+  - refId: size
+    instant: true
+    expr: |
+      label_replace(label_replace(
+        (DCGM_FI_DEV_FB_USED + on(Hostname, gpu) DCGM_FI_DEV_FB_FREE) * 1048576,
+        "node", "$1", "Hostname", "(.*)"
+      ), "mountpoint", "gpu$1", "gpu", "(.*)")
+  - refId: used
+    instant: true
+    expr: |
+      label_replace(label_replace(
+        DCGM_FI_DEV_FB_USED * 1048576,
+        "node", "$1", "Hostname", "(.*)"
+      ), "mountpoint", "gpu$1", "gpu", "(.*)")
+  - refId: categories
+    instant: true
+    expr: |
+      label_replace(label_replace(label_replace(
+        clamp_min(DCGM_FI_DEV_FB_USED * 1048576 - 1207959552, 0),
+        "category", "vllm-resident", "", ""
+      ), "node", "$1", "Hostname", "(.*)"), "mountpoint", "gpu$1", "gpu", "(.*)")
+      or
+      label_replace(label_replace(label_replace(
+        DCGM_FI_DEV_FB_USED * 0 + 1207959552 * scalar(max(vllm:kv_cache_usage_perc)),
+        "category", "vllm-kv-active", "", ""
+      ), "node", "$1", "Hostname", "(.*)"), "mountpoint", "gpu$1", "gpu", "(.*)")
+      or
+      label_replace(label_replace(label_replace(
+        DCGM_FI_DEV_FB_USED * 0 + 1207959552 * (1 - scalar(max(vllm:kv_cache_usage_perc))),
+        "category", "vllm-kv-idle", "", ""
+      ), "node", "$1", "Hostname", "(.*)"), "mountpoint", "gpu$1", "gpu", "(.*)")
+```
+
+Pattern recap:
+
+- 1207959552 is 1.125 GiB (the vLLM KV cap) in bytes. Inline the
+  constant once and reuse it.
+- `DCGM_FI_DEV_FB_USED * 0 + <bytes>` is the PromQL idiom for "the
+  same label set as DCGM_FB_USED, but a constant value". It preserves
+  Hostname and gpu so label_replace works the same way as on the real
+  metric.
+- Each category query ends in label_replace for category, then node,
+  then mountpoint. Use `or` to union the per-category series into a
+  single result set.
+- showOther stays off because the three categories sum to
+  `DCGM_FI_DEV_FB_USED * 1048576` by construction.
+
+### Example: per-node RAM by source
+
+Same pattern for system RAM, using node_memory_* and label_replace
+to give every series a mountpoint of "ram":
+
+```yaml
+targets:
+  - refId: size
+    instant: true
+    expr: |
+      label_replace(label_replace(
+        node_memory_MemTotal_bytes,
+        "node", "$1", "instance", "([^:]+).*"
+      ), "mountpoint", "ram", "", "")
+  - refId: used
+    instant: true
+    expr: |
+      label_replace(label_replace(
+        node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes,
+        "node", "$1", "instance", "([^:]+).*"
+      ), "mountpoint", "ram", "", "")
+  - refId: categories
+    instant: true
+    expr: |
+      label_replace(label_replace(label_replace(
+        node_memory_Buffers_bytes,
+        "category", "buffers", "", ""
+      ), "node", "$1", "instance", "([^:]+).*"), "mountpoint", "ram", "", "")
+      or
+      label_replace(label_replace(label_replace(
+        node_memory_Cached_bytes,
+        "category", "cached", "", ""
+      ), "node", "$1", "instance", "([^:]+).*"), "mountpoint", "ram", "", "")
+      or
+      label_replace(label_replace(label_replace(
+        node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes - node_memory_Buffers_bytes - node_memory_Cached_bytes,
+        "category", "active", "", ""
+      ), "node", "$1", "instance", "([^:]+).*"), "mountpoint", "ram", "", "")
+```
+
 ## Repo layout
 
 ```
